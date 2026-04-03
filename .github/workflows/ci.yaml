@@ -3,6 +3,8 @@ name: CI
 on:
   push:
     branches: [cicd]
+    paths-ignore:
+      - 'k8s/kustomization.yaml'
 
 env:
   AWS_REGION: eu-west-2
