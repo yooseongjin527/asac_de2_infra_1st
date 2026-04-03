@@ -27,8 +27,3 @@ spec:
           limits:
             cpu: "500m"
             memory: "512Mi"
-        envFrom:
-        - configMapRef:
-            name: raffle-config
-        - secretRef:
-            name: raffle-secret
