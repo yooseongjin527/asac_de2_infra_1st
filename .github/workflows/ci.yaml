@@ -42,8 +42,8 @@ jobs:
           IMAGE_TAG: ${{ github.sha }}
         run: |
           curl -sL https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize%2Fv5.4.1/kustomize_v5.4.1_linux_amd64.tar.gz | tar xz
-          ./kustomize edit set image my-raffle-app=$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG \
-            --kustomization k8s/kustomization.yaml
+          cd k8s
+          ../kustomize edit set image my-raffle-app=$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
 
       - name: Git 커밋 & 푸시
         run: |
