@@ -1,0 +1,515 @@
+AWSTemplateFormatVersion: '2010-09-09' 
+Description: 'HA VPC with Dynamic Subnet Allocation and User Credentials'
+
+#---------------------------------------------------------
+# [추가] 스택 생성 시 콘솔에서 키를 입력받는 창을 만듭니다.
+# ---------------------------------------------------------
+Parameters:
+  VpcCidr:
+    Type: String
+    Default: 10.0.0.0/16
+    Description: 'VPC CIDR Block (Default: 10.0.0.0/16)'
+
+
+
+Resources:
+  # 1. VPC 생성
+  MainVPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: !Ref VpcCidr
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags:
+        - Key: Name
+          Value: ha-compact-vpc
+
+  # 2. Internet Gateway 및 연결
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: Name
+          Value: ha-igw
+
+  AttachGateway:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref MainVPC
+      InternetGatewayId: !Ref InternetGateway
+
+  # 3. 서브넷 동적 설계 (IP 대역 충돌 방지를 위한 Indexing 계산)
+  
+  # Public Subnets (Index 0, 1 from /24 array)
+  PublicSubnetA:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref MainVPC
+      CidrBlock: !Select [0, !Cidr [!Ref VpcCidr, 16, 8]]
+      AvailabilityZone: !Select [0, !GetAZs '']
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: sbn-pub-a
+
+  PublicSubnetB:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref MainVPC
+      CidrBlock: !Select [1, !Cidr [!Ref VpcCidr, 16, 8]]
+      AvailabilityZone: !Select [1, !GetAZs '']
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: sbn-pub-b
+
+  # App Private Subnets (Index 1, 2 from /22 array) - /22로 할당
+  AppPrivateSubnetA:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref MainVPC
+      CidrBlock: !Select [1, !Cidr [!Ref VpcCidr, 4, 10]]
+      AvailabilityZone: !Select [0, !GetAZs '']
+      Tags:
+        - Key: Name
+          Value: sbn-app-a
+
+  AppPrivateSubnetB:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref MainVPC
+      CidrBlock: !Select [2, !Cidr [!Ref VpcCidr, 4, 10]]
+      AvailabilityZone: !Select [1, !GetAZs '']
+      Tags:
+        - Key: Name
+          Value: sbn-app-b
+
+  # DB Private Subnets (Isolated) (Index 12, 13 from /24 array)
+  DBPrivateSubnetA:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref MainVPC
+      CidrBlock: !Select [12, !Cidr [!Ref VpcCidr, 16, 8]]
+      AvailabilityZone: !Select [0, !GetAZs '']
+      Tags:
+        - Key: Name
+          Value: sbn-db-a
+
+  DBPrivateSubnetB:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref MainVPC
+      CidrBlock: !Select [13, !Cidr [!Ref VpcCidr, 16, 8]]
+      AvailabilityZone: !Select [1, !GetAZs '']
+      Tags:
+        - Key: Name
+          Value: sbn-db-b
+
+  # 4. NAT Gateway 2개 및 탄력적 IP(EIP) 2개 생성
+  NatEipA:
+    Type: AWS::EC2::EIP
+    Properties:
+      Domain: vpc
+
+  NatGatewayA:
+    Type: AWS::EC2::NatGateway
+    Properties:
+      AllocationId: !GetAtt NatEipA.AllocationId
+      SubnetId: !Ref PublicSubnetA
+      Tags:
+        - Key: Name
+          Value: nat-gw-a
+
+  NatEipB:
+    Type: AWS::EC2::EIP
+    Properties:
+      Domain: vpc
+
+  NatGatewayB:
+    Type: AWS::EC2::NatGateway
+    Properties:
+      AllocationId: !GetAtt NatEipB.AllocationId
+      SubnetId: !Ref PublicSubnetB
+      Tags:
+        - Key: Name
+          Value: nat-gw-b
+
+  # 5. 라우팅 테이블 설정
+  # Public: IGW 연결
+  PublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref MainVPC
+      Tags:
+        - Key: Name
+          Value: rtb-public
+
+  PublicRoute:
+    Type: AWS::EC2::Route
+    DependsOn: AttachGateway
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+
+  # App A: NAT GW A 연결
+  AppRouteTableA:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref MainVPC
+      Tags:
+        - Key: Name
+          Value: rtb-app-a
+
+  AppRouteA:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref AppRouteTableA
+      DestinationCidrBlock: 0.0.0.0/0
+      NatGatewayId: !Ref NatGatewayA
+
+  # App B: NAT GW B 연결
+  AppRouteTableB:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref MainVPC
+      Tags:
+        - Key: Name
+          Value: rtb-app-b
+
+  AppRouteB:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref AppRouteTableB
+      DestinationCidrBlock: 0.0.0.0/0
+      NatGatewayId: !Ref NatGatewayB
+
+  # DB: 외부 라우트 없음 (격리) - NAT 연결 배제
+  DBRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref MainVPC
+      Tags:
+        - Key: Name
+          Value: rtb-db-isolated
+
+  # 6. 서브넷과 라우팅 테이블 연결
+  PublicSubnetAAssoc:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnetA
+      RouteTableId: !Ref PublicRouteTable
+
+  PublicSubnetBAssoc:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnetB
+      RouteTableId: !Ref PublicRouteTable
+
+  AppSubnetAAssoc:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref AppPrivateSubnetA
+      RouteTableId: !Ref AppRouteTableA
+
+  AppSubnetBAssoc:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref AppPrivateSubnetB
+      RouteTableId: !Ref AppRouteTableB
+
+  DBSubnetAAssoc:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref DBPrivateSubnetA
+      RouteTableId: !Ref DBRouteTable
+
+  DBSubnetBAssoc:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref DBPrivateSubnetB
+      RouteTableId: !Ref DBRouteTable
+  
+  EKSClusterRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: eks.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonEKSClusterPolicy
+
+  # ---------------------------------------------------------
+  # 2. EKS Cluster 생성 (두뇌 역할)
+  # ---------------------------------------------------------
+  MyEKSCluster:
+    Type: AWS::EKS::Cluster
+    Properties:
+      Name: data-engineer-cluster
+      RoleArn: !GetAtt EKSClusterRole.Arn
+      ResourcesVpcConfig:
+        SubnetIds:
+          - !Ref AppPrivateSubnetA
+          - !Ref AppPrivateSubnetB
+          - !Ref PublicSubnetA
+          - !Ref PublicSubnetB
+
+  # ---------------------------------------------------------
+  # 3. EKS Node Group (워커 노드 - 여기서 Apache나 Spark가 돌아감)
+  # ---------------------------------------------------------
+  # ASG를 직접 만드는 대신 EKS Managed Node Group을 사용합니다.
+  # 이것이 자동으로 '편입'을 담당합니다.
+  MyEKSNodegroup:
+    Type: AWS::EKS::Nodegroup
+    Properties:
+      ClusterName: !Ref MyEKSCluster
+      NodeRole: !GetAtt NodeInstanceRole.Arn
+      Subnets:
+        - !Ref AppPrivateSubnetA
+        - !Ref AppPrivateSubnetB
+      ScalingConfig:
+        MinSize: 1
+        MaxSize: 10
+        DesiredSize: 2
+      InstanceTypes:
+        - t3.medium # EKS 구동을 위해 최소 t3급 권장
+
+  # ---------------------------------------------------------
+  # 4. 명령 서버 (Command Server / 리모컨 역할)
+  # ---------------------------------------------------------
+  # ---------------------------------------------------------
+  # [수정] 명령 서버 (Bastion) 설정
+  # ---------------------------------------------------------
+  CommandServer:
+    Type: AWS::EC2::Instance
+    DependsOn: MyEKSCluster # EKS가 생성된 후 명령 서버가 설정되도록 순서 강제
+    Properties:
+      InstanceType: t2.micro
+      ImageId: !Sub "{{resolve:ssm:/aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64}}"
+      SubnetId: !Ref PublicSubnetA
+      SecurityGroupIds:
+        - !Ref CommandServerSG
+      IamInstanceProfile: !Ref CommandServerInstanceProfile # IAM Role 장착 (핵심)
+      Tags:
+        - Key: Name
+          Value: "bastion-host"
+        - Key: Project
+          Value: "asac-infra-project"
+      UserData: 
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          # 1. 필수 도구 설치
+          yum update -y
+          yum install -y jq
+          
+          # 2. kubectl 설치
+          curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+          install -o root -g root -m 0755 kubectl /usr/local/bin/kubectl
+          
+          # 3. eksctl 설치
+          curl --silent --location "https://github.com/weaveworks/eksctl/releases/latest/download/eksctl_$(uname -s)_amd64.tar.gz" | tar xz -C /tmp
+          mv /tmp/eksctl /usr/local/bin
+          
+          # 4. EKS 클러스터 자격 증명 업데이트 (IAM Role을 통해 자동 인증됨)
+          # 인스턴스 프로파일 권한으로 별도의 키 입력 없이 바로 EKS와 연결됩니다.
+          aws eks update-kubeconfig --region ${AWS::Region} --name data-engineer-cluster
+  # ---------------------------------------------------------
+  # 5. EKS 워커 노드 전용 IAM Role (필수 권한)
+  # ---------------------------------------------------------
+  NodeInstanceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ec2.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonEKSWorkerNodePolicy
+        - arn:aws:iam::aws:policy/AmazonEKS_CNI_Policy
+        - arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly
+  
+  # ---------------------------------------------------------
+  # 1. 명령 서버용 보안 그룹 (Bastion / 리모컨 역할)
+  # ---------------------------------------------------------
+  CommandServerSG:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Allow SSH to Command Server
+      VpcId: !Ref MainVPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: 0.0.0.0/0 # 실무에서는 내 집/사무실 IP로 제한 권장
+      Tags:
+        - Key: Name
+          Value: sg-command-server
+
+  # ---------------------------------------------------------
+  # 2. ALB용 보안 그룹 (인터넷에서 들어오는 웹 트래픽 허용)
+  # ---------------------------------------------------------
+  ALBSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Allow HTTP from Internet
+      VpcId: !Ref MainVPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+      Tags:
+        - Key: Name
+          Value: sg-alb
+
+  # ---------------------------------------------------------
+  # 3. EKS 노드용 보안 그룹 (ALB와 명령 서버로부터의 접속 허용)
+  # ---------------------------------------------------------
+  AppSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Allow HTTP from ALB and SSH from Command Server
+      VpcId: !Ref MainVPC
+      SecurityGroupIngress:
+        # 로드밸런서로부터 들어오는 웹 트래픽 허용
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          SourceSecurityGroupId: !Ref ALBSecurityGroup
+        # 명령 서버에서 들어오는 SSH 접속 허용 (디버깅용)
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          SourceSecurityGroupId: !Ref CommandServerSG
+      Tags:
+        - Key: Name
+          Value: sg-app-node
+  # ---------------------------------------------------------
+  # 11. VPC Endpoints (DB 서브넷의 '최소 생존 통로')
+  # ---------------------------------------------------------
+  
+  # S3 Gateway Endpoint (비용 무료, 라우팅 테이블에 자동 추가됨)
+  S3Endpoint:
+    Type: AWS::EC2::VPCEndpoint
+    Properties:
+      ServiceName: !Sub "com.amazonaws.${AWS::Region}.s3"
+      VpcId: !Ref MainVPC
+      VpcEndpointType: Gateway
+      RouteTableIds:
+        - !Ref DBRouteTable # DB 라우팅 테이블에 S3로 가는 길을 뚫어줌
+
+  # Secrets Manager Interface Endpoint (보안 인증용, 프라이빗 IP 점유)
+  SecretsManagerEndpoint:
+    Type: AWS::EC2::VPCEndpoint
+    Properties:
+      ServiceName: !Sub "com.amazonaws.${AWS::Region}.secretsmanager"
+      VpcId: !Ref MainVPC
+      VpcEndpointType: Interface
+      PrivateDnsEnabled: true
+      SubnetIds:
+        - !Ref DBPrivateSubnetA
+        - !Ref DBPrivateSubnetB
+      SecurityGroupIds:
+        - !Ref AppSecurityGroup # 기존에 만든 보안 그룹 활용 (필요시 전용 SG 생성 권장)
+  # ---------------------------------------------------------
+  # [추가] 명령 서버 전용 IAM Role (자격 증명 대체)
+  # ---------------------------------------------------------
+  CommandServerRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ec2.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        # 평가 프로젝트 및 원활한 제어를 위해 관리자 권한 부여 (실무 운영 시 최소 권한으로 축소 필요)
+        - arn:aws:iam::aws:policy/AdministratorAccess 
+        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+
+  CommandServerInstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Roles:
+        - !Ref CommandServerRole
+
+  
+  # ---------------------------------------------------------
+  # [추가] 1. DB 서브넷 그룹 (RDS가 위치할 격리망 지정)
+  # ---------------------------------------------------------
+  MyDBSubnetGroup:
+    Type: AWS::RDS::DBSubnetGroup
+    Properties:
+      DBSubnetGroupDescription: "Isolated subnet group for RDS"
+      SubnetIds:
+        - !Ref DBPrivateSubnetA
+        - !Ref DBPrivateSubnetB
+      Tags:
+        - Key: Name
+          Value: db-subnet-group
+
+  # ---------------------------------------------------------
+  # [추가] 2. DB 보안 그룹 (EKS 워커 노드에서만 접근 허용)
+  # ---------------------------------------------------------
+  DBSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Allow MySQL traffic from EKS App Subnets
+      VpcId: !Ref MainVPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 3306 # PostgreSQL을 쓴다면 5432로 변경
+          ToPort: 3306
+          SourceSecurityGroupId: !Ref AppSecurityGroup # EKS 노드의 트래픽만 허용
+      Tags:
+        - Key: Name
+          Value: sg-rds-isolated
+
+  # ---------------------------------------------------------
+  # [추가] 3. 쓰기용 Primary DB (Writer)
+  # ---------------------------------------------------------
+  PrimaryDB:
+    Type: AWS::RDS::DBInstance
+    Properties:
+      DBInstanceIdentifier: data-pipeline-primary
+      Engine: mysql
+      EngineVersion: '8.0'
+      DBInstanceClass: db.t3.micro # 비용 절감을 위해 최소 사양 사용
+      AllocatedStorage: 20
+      DBSubnetGroupName: !Ref MyDBSubnetGroup
+      VPCSecurityGroups:
+        - !Ref DBSecurityGroup
+      MasterUsername: admin
+      MasterUserPassword: "SuperSecretPassword123!" # 실무에선 Secrets Manager 사용 필수
+      BackupRetentionPeriod: 1 # Read Replica를 만들려면 백업이 반드시 활성화되어야 함 (팩트)
+      MultiAZ: false # Replica를 쓰므로 일단 false (평가 환경 비용 절감)
+      PubliclyAccessible: false
+      Tags:
+        - Key: Name
+          Value: rds-primary-writer
+
+  # ---------------------------------------------------------
+  # [추가] 4. 읽기용 Replica DB (Reader)
+  # ---------------------------------------------------------
+  ReplicaDB:
+    Type: AWS::RDS::DBInstance
+    Properties:
+      DBInstanceIdentifier: data-pipeline-replica
+      SourceDBInstanceIdentifier: !Ref PrimaryDB # Primary DB를 바라보며 복제
+      DBInstanceClass: db.t3.micro
+      VPCSecurityGroups:
+        - !Ref DBSecurityGroup
+      # Replica는 Primary의 설정을 따라가므로 Engine, Password 등은 생략됨
+      PubliclyAccessible: false
+      Tags:
+        - Key: Name
+          Value: rds-replica-reader
