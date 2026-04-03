@@ -1,0 +1,14 @@
+# Terraform 로컬 캐시 (용량 크고 자동 생성되므로 제외)
+**/.terraform/
+*.tfstate
+*.tfstate.backup
+.terraform.lock.hcl
+
+# 민감 정보
+*.pem
+*.key
+terraform.tfvars
+
+# OS
+.DS_Store
+Thumbs.db
