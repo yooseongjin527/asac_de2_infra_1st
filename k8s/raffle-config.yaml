@@ -1,0 +1,21 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: raffle-config
+data:
+  APP_ENV: "prod"
+  DB_ENGINE: "mysql"
+
+  # Write DB (Primary)
+  DB_WRITE_HOST: "raffle-db-write"
+  DB_WRITE_PORT: "3306"
+  DB_WRITE_NAME: "raffle_db"
+
+  # Read DB (Replica)
+  DB_READ_HOST: "raffle-db-read"
+  DB_READ_PORT: "3306"
+  DB_READ_NAME: "raffle_db"
+
+  DB_READ_WRITE_SPLIT: "true"
+
+  DB_CONNECTION_TIMEOUT: "30"
