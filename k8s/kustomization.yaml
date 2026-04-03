@@ -8,4 +8,4 @@ resources:
 images:
 - name: my-raffle-app
   newName: 486053612615.dkr.ecr.eu-west-2.amazonaws.com/my-raffle-app
-  newTag: d0203627fdb6b01908232fe050e0b710ecaa6f87
+  newTag: 880113d4a78a81b2cc52670f23d6a6b455481e2f
