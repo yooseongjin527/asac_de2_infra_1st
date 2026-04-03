@@ -1,0 +1,20 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: my-raffle-app
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/yooseongjin527/asac_de2_infra_1st
+    targetRevision: main
+    path: k8s                  # overlays 없이 k8s/ 루트 바로 참조
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: default
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
