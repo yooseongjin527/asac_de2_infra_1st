@@ -17,7 +17,7 @@ spec:
     spec:
       containers:
       - name: raffle-container
-        image: "<ECR_URI_주소>:v1"
+        image: "my-raffle-app:latest"
         ports:
         - containerPort: 8080
         resources:
