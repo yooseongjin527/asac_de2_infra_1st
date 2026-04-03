@@ -27,3 +27,33 @@ spec:
           limits:
             cpu: "500m"
             memory: "512Mi"
+---
+# V2
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: raffle-app-v2
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: raffle
+      version: v2
+  template:
+    metadata:
+      labels:
+        app: raffle
+        version: v2
+    spec:
+      containers:
+      - name: raffle-container
+        image: my-raffle-app:latest
+        ports:
+        - containerPort: 8000
+        resources:
+          requests:
+            cpu: "250m"
+            memory: "256Mi"
+          limits:
+            cpu: "500m"
+            memory: "512Mi"
