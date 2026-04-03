@@ -7,7 +7,7 @@ spec:
   project: default
   source:
     repoURL: https://github.com/yooseongjin527/asac_de2_infra_1st
-    targetRevision: main
+    targetRevision: cicd
     path: k8s                  # overlays 없이 k8s/ 루트 바로 참조
   destination:
     server: https://kubernetes.default.svc
