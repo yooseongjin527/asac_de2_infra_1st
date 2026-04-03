@@ -9,7 +9,7 @@ spec:
     version: v1
   ports:
     - port: 80
-      targetPort: 8080
+      targetPort: 8000
   type: LoadBalancer
 ---
 apiVersion: v1
@@ -23,5 +23,5 @@ spec:
     version: v2
   ports:
     - port: 80
-      targetPort: 8080
+      targetPort: 8000
   type: LoadBalancer

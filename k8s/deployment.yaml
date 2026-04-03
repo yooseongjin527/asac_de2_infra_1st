@@ -19,7 +19,7 @@ spec:
       - name: raffle-container
         image: "my-raffle-app:latest"
         ports:
-        - containerPort: 8080
+        - containerPort: 8000
         resources:
           requests:
             cpu: "250m"
