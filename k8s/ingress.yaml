@@ -17,12 +17,12 @@ metadata:
             {
               "serviceName":"raffle-service-v1",
               "servicePort":"80",
-              "weight":90
+              "weight":100
             },
             {
               "serviceName":"raffle-service-v2",
               "servicePort":"80",
-              "weight":10
+              "weight":0
             }
           ]
         }
