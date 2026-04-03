@@ -51,7 +51,10 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git pull origin cicd --rebase
-          git add k8s/kustomization.yaml
+          git add k8s/kustomization.yaml       # ← pull 전에 먼저 스테이징
+          git stash                             # ← 임시 저장
+          git pull origin cicd --rebase         # ← 최신 상태 가져오기
+          git stash pop                         # ← 임시 저장 복원
+          git add k8s/kustomization.yaml       # ← 다시 스테이징
           git commit -m "ci: update image tag to ${{ github.sha }}" || echo "변경 없음"
           git push
