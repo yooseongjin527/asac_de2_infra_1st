@@ -9,8 +9,11 @@ Parameters:
     Type: String
     Default: 10.0.0.0/16
     Description: 'VPC CIDR Block (Default: 10.0.0.0/16)'
-
-
+# [추가] 배포 시 접근 허용할 IP를 입력받도록 파라미터 추가
+  AllowedSSHLocation:
+    Type: String
+    Default: 0.0.0.0/0
+    Description: 'The IP address range that can be used to SSH to the Bastion host (e.g., your home IP x.x.x.x/32)'
 
 Resources:
   # 1. VPC 생성
@@ -296,7 +299,9 @@ Resources:
       IamInstanceProfile: !Ref CommandServerInstanceProfile # IAM Role 장착 (핵심)
       Tags:
         - Key: Name
-          Value: ec2-command-server
+          Value: "bastion-host"
+        - Key: Project
+          Value: "asac-infra-project"
       UserData: 
         Fn::Base64: !Sub |
           #!/bin/bash
@@ -345,10 +350,13 @@ Resources:
         - IpProtocol: tcp
           FromPort: 22
           ToPort: 22
-          CidrIp: 0.0.0.0/0 # 실무에서는 내 집/사무실 IP로 제한 권장
+          CidrIp: !Ref AllowedSSHLocation # 하드코딩된 0.0.0.0/0 대신 파라미터 참조
       Tags:
         - Key: Name
           Value: sg-command-server
+  # CommandServerRole의 AdministratorAccess는 현재 EKS 제어 테스트를 위해 편의상 둔 것
+  # 학습용/테스트용이라면 위 IP 제한만 걸어두고 쓰셔도 무방하나, 실제 프로덕션 도입 시에는 
+  # EKS 및 EC2 관련 필수 권한만 부여하는 커스텀 정책으로 교체해야 합니다.
 
   # ---------------------------------------------------------
   # 2. ALB용 보안 그룹 (인터넷에서 들어오는 웹 트래픽 허용)
@@ -389,6 +397,20 @@ Resources:
       Tags:
         - Key: Name
           Value: sg-app-node
+  # [추가] VPC Endpoint 전용 보안 그룹
+  VPCEndpointSG:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Allow HTTPS from App Subnets for VPC Endpoints
+      VpcId: !Ref MainVPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          SourceSecurityGroupId: !Ref AppSecurityGroup # EKS 노드에서 오는 HTTPS 트래픽 허용
+      Tags:
+        - Key: Name
+          Value: sg-vpc-endpoints
   # ---------------------------------------------------------
   # 11. VPC Endpoints (DB 서브넷의 '최소 생존 통로')
   # ---------------------------------------------------------
@@ -415,7 +437,7 @@ Resources:
         - !Ref DBPrivateSubnetA
         - !Ref DBPrivateSubnetB
       SecurityGroupIds:
-        - !Ref AppSecurityGroup # 기존에 만든 보안 그룹 활용 (필요시 전용 SG 생성 권장)
+        - !Ref VPCEndpointSG # AppSecurityGroup에서 전용 SG로 변경!
   # ---------------------------------------------------------
   # [추가] 명령 서버 전용 IAM Role (자격 증명 대체)
   # ---------------------------------------------------------
@@ -511,3 +533,41 @@ Resources:
       Tags:
         - Key: Name
           Value: rds-replica-reader
+
+  # [추가] Application Load Balancer
+  PublicALB:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Name: web-app-alb
+      Scheme: internet-facing
+      Subnets:
+        - !Ref PublicSubnetA
+        - !Ref PublicSubnetB
+      SecurityGroups:
+        - !Ref ALBSecurityGroup
+      Tags:
+        - Key: Name
+          Value: alb-web-app
+
+  # [추가] ALB 타겟 그룹 (EKS 노드들로 트래픽을 전달)
+  ALBTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      Name: web-app-tg
+      VpcId: !Ref MainVPC
+      Port: 80
+      Protocol: HTTP
+      TargetType: instance # EKS 환경(NodePort 등)에 맞춰 구성
+      HealthCheckPath: /
+      HealthCheckProtocol: HTTP
+
+  # [추가] ALB 리스너 (80번 포트로 들어온 요청을 타겟 그룹으로 전달)
+  ALBListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      LoadBalancerArn: !Ref PublicALB
+      Port: 80
+      Protocol: HTTP
+      DefaultActions:
+        - Type: forward
+          TargetGroupArn: !Ref ALBTargetGroup
