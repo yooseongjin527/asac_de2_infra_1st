@@ -89,7 +89,7 @@ spec:
     spec:
       containers:
       - name: raffle-container
-        image: 486053612615.dkr.ecr.eu-west-2.amazonaws.com/raffle-app:stable
+        image: 486053612615.dkr.ecr.eu-west-2.amazonaws.com/raffle-app:9ff615b8f56bb4100e6c649913d7b5f967db0f47
         imagePullPolicy: Always
         ports:
         - containerPort: 8080
@@ -126,7 +126,7 @@ spec:
       containers:
       - name: raffle-container
         # CI가 머지될 때마다 아래 태그를 commit SHA로 자동 교체
-        image: 486053612615.dkr.ecr.eu-west-2.amazonaws.com/raffle-app:latest
+        image: 486053612615.dkr.ecr.eu-west-2.amazonaws.com/raffle-app:9ff615b8f56bb4100e6c649913d7b5f967db0f47
         imagePullPolicy: Always
         ports:
         - containerPort: 8080
