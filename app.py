@@ -1,18 +1,17 @@
 from flask import Flask, render_template, request, jsonify, session, redirect, url_for
 import pymysql
 from datetime import datetime
+import os 
 
 app = Flask(__name__)
 app.secret_key = 'dev-secret-key'
 
-# ==========================================
-# 1. AWS RDS 엔드포인트 설정 (A가 주거나, 네가 만든 주소 입력)
-# ==========================================
-DB_WRITER_HOST = "raffle-master-temp.cr0i2486ezf2.eu-west-1.rds.amazonaws.com" # 마스터 주소
-DB_READER_HOST = "raffle-replica-temp.cr0i2486ezf2.eu-west-1.rds.amazonaws.com" # 리플리카 주소
-DB_USER = "admin"
-DB_PASSWORD = "test1234"
-DB_NAME = "raffle_db"
+# 1. ConfigMap에서 가져오기
+DB_WRITER_HOST = os.environ.get('DB_WRITER_HOST')
+DB_READER_HOST = os.environ.get('DB_READER_HOST')
+DB_NAME = os.environ.get('DB_NAME', 'raffle_db')
+DB_USER = os.environ.get('DB_USER', 'admin')
+DB_PASSWORD = os.environ.get('DB_PASSWORD')
 
 def get_db_connection(is_write=False):
     """트래픽 분산의 핵심: 쓰기 요청은 Master로, 읽기 요청은 Replica로 연결"""
