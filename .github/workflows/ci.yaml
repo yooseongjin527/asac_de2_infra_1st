@@ -14,7 +14,7 @@ env:
  
 # ── Job 1: Docker 이미지 빌드 & ECR 푸시 ─────────────────
 jobs:
-  build & push:
+  build and push:
     name: 🐳 Build & Push Image
     runs-on: ubuntu-latest
     if: github.event.pull_request.merged == true
