@@ -10,6 +10,7 @@ metadata:
     alb.ingress.kubernetes.io/actions.canary-routing: >
       {"type":"forward","forwardConfig":{"targetGroups":[{"serviceName":"raffle-svc-v1","servicePort":"80","weight":100},{"serviceName":"raffle-svc-v2","servicePort":"80","weight":0}]}}
 spec:
+  ingressClassName: alb
   rules:
     - http:
         paths:
