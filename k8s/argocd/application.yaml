@@ -10,7 +10,9 @@ spec:
   source:
     repoURL: https://github.com/yooseongjin527/asac_de2_infra_1st
     targetRevision: main      # main 브랜치 감시
-    path: k8s                 # k8s/ 폴더 전체 적용
+    path: k8s
+    directory:
+      exclude: "secret.yaml"                 # k8s/ 폴더 전체 적용
   destination:
     server: https://kubernetes.default.svc
     namespace: default
