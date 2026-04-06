@@ -1,0 +1,9 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: raffle-config
+data:
+  DB_WRITER_HOST: "data-pipeline-primary.ctysyyia4d93.eu-west-2.rds.amazonaws.com"  # RDS Primary 엔드포인트
+  DB_READER_HOST: "data-pipeline-primary.ctysyyia4d93.eu-west-2.rds.amazonaws.com"  # RDS Replica 엔드포인트
+  DB_NAME: "raffle_db"
+  DB_USER: "admin"
