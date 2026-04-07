@@ -125,7 +125,7 @@ spec:
     spec:
       containers:
       - name: raffle-container
-        # CI가 머지될 때마다 아래 태그를 commit SHA로 자동 교체
+        # CI가 머지될 때마다 아래 태그를 commit SHA로 자동 교체한다
         image: 486053612615.dkr.ecr.eu-west-2.amazonaws.com/raffle-app:0ef7e3e62570500a0bbf37a87534a95925b89143
         imagePullPolicy: Always
         ports:
