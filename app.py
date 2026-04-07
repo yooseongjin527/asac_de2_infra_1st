@@ -148,14 +148,24 @@ def api_apply():
     conn = get_db_connection(is_write=True)
     try:
         with conn.cursor() as cursor:
-            # username으로 user_id(PK) 찾기
+            # [추가] 해당 아이템이 이미 당첨 발표되었거나 종료되었는지 확인
+            cursor.execute("SELECT is_drawn, end_time FROM raffle_items WHERE id=%s", (item_id,))
+            item = cursor.fetchone()
+            
+            if not item:
+                return jsonify({"status": "error", "message": "존재하지 않는 상품입니다."}), 404
+            
+            # 이미 당첨자가 나왔거나 시간이 지났다면 응모 차단
+            if item['is_drawn'] or item['end_time'] < datetime.now():
+                return jsonify({"status": "error", "message": "이미 종료된 래플입니다."}), 400
+
+            # (기존 로직) 유저 ID 찾고 응모 기록 저장...
             cursor.execute("SELECT id FROM users WHERE username=%s", (current_username,))
             user_pk = cursor.fetchone()['id']
-            
-            # [마스터 DB] 응모 기록 저장
             cursor.execute("INSERT INTO raffle_entries (user_id, item_id) VALUES (%s, %s)", (user_pk, item_id))
+            
         conn.commit()
-        return jsonify({"status": "success", "message": "성공적으로 응모되었습니다! 마이페이지에서 확인하세요."})
+        return jsonify({"status": "success", "message": "성공적으로 응모되었습니다!"})
     except pymysql.err.IntegrityError:
         return jsonify({"status": "error", "message": "이미 응모하신 상품입니다!"}), 400
     finally:
@@ -166,59 +176,87 @@ def api_apply():
 # ==========================================
 @app.route('/init-db')
 def initialize_database():
-    """빈 DB에 테이블을 만들고 테스트용 래플 상품을 넣는 마법의 URL"""
-    # 1. DB 자체(raffle_db)가 없으면 생성
+    """DB 초기화, 샘플 데이터, 그리고 test1 유저 당첨 데이터까지 한방에 셋업"""
+    # 1. DB 생성 로직 (Writer Host 사용)
     temp_conn = pymysql.connect(host=DB_WRITER_HOST, user=DB_USER, password=DB_PASSWORD)
     with temp_conn.cursor() as cursor:
         cursor.execute(f"CREATE DATABASE IF NOT EXISTS {DB_NAME}")
     temp_conn.commit()
     temp_conn.close()
 
-    # 2. 테이블 생성 및 샘플 데이터 삽입
+    # 2. 테이블 생성 및 데이터 삽입
     conn = get_db_connection(is_write=True)
-    with conn.cursor() as cursor:
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS users (
-                id INT AUTO_INCREMENT PRIMARY KEY,
-                username VARCHAR(50) UNIQUE NOT NULL,
-                password VARCHAR(255) NOT NULL
-            )
-        """)
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS raffle_items (
-                id INT AUTO_INCREMENT PRIMARY KEY,
-                title VARCHAR(100) NOT NULL,
-                description TEXT,
-                end_time DATETIME NOT NULL,
-                image_url VARCHAR(255),
-                winner_id INT DEFAULT NULL,
-                is_drawn BOOLEAN DEFAULT FALSE,
-                FOREIGN KEY (winner_id) REFERENCES users(id)
-            )
-        """)
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS raffle_entries (
-                id INT AUTO_INCREMENT PRIMARY KEY,
-                user_id INT,
-                item_id INT,
-                entry_time DATETIME DEFAULT CURRENT_TIMESTAMP,
-                FOREIGN KEY (user_id) REFERENCES users(id),
-                FOREIGN KEY (item_id) REFERENCES raffle_items(id),
-                UNIQUE KEY unique_entry (user_id, item_id) -- 1인 1회 응모 방지
-            )
-        """)
-        
-        # 샘플 래플 상품 데이터 2개 넣기 (테이블이 비어있을 때만)
-        cursor.execute("SELECT COUNT(*) as cnt FROM raffle_items")
-        if cursor.fetchone()['cnt'] == 0:
+    try:
+        with conn.cursor() as cursor:
+            # 테이블 생성 (기존과 동일)
             cursor.execute("""
-                INSERT INTO raffle_items (title, description, end_time, image_url) VALUES 
-                ('나이키 덩크 로우 범고래', '국민 신발, 마지막 기회!', '2026-04-30 18:00:00', 'https://images.unsplash.com/photo-1595950653106-6c9ebd614d3a?w=500&q=80'),
-                ('애플 에어팟 맥스 실버', '노이즈 캔슬링 끝판왕', '2026-05-05 12:00:00', 'https://images.unsplash.com/photo-1613040809024-b4ef7ba99bc3?w=500&q=80')
+                CREATE TABLE IF NOT EXISTS users (
+                    id INT AUTO_INCREMENT PRIMARY KEY,
+                    username VARCHAR(50) UNIQUE NOT NULL,
+                    password VARCHAR(255) NOT NULL
+                )
             """)
-    conn.commit()
-    conn.close()
-    return "DB 초기화 및 샘플 데이터 삽입 성공! 이제 메인 페이지(/)로 접속하세요."
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS raffle_items (
+                    id INT AUTO_INCREMENT PRIMARY KEY,
+                    title VARCHAR(100) NOT NULL,
+                    description TEXT,
+                    end_time DATETIME NOT NULL,
+                    image_url VARCHAR(255),
+                    winner_id INT DEFAULT NULL,
+                    is_drawn BOOLEAN DEFAULT FALSE,
+                    FOREIGN KEY (winner_id) REFERENCES users(id)
+                )
+            """)
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS raffle_entries (
+                    id INT AUTO_INCREMENT PRIMARY KEY,
+                    user_id INT,
+                    item_id INT,
+                    entry_time DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (user_id) REFERENCES users(id),
+                    FOREIGN KEY (item_id) REFERENCES raffle_items(id),
+                    UNIQUE KEY unique_entry (user_id, item_id)
+                )
+            """)
+            
+            # [추가] 1. test1 유저 생성 (없을 때만)
+            cursor.execute("SELECT id FROM users WHERE username = 'test1'")
+            user = cursor.fetchone()
+            if not user:
+                cursor.execute("INSERT INTO users (username, password) VALUES ('test1', '1234')")
+                user_id = conn.insert_id()
+            else:
+                user_id = user['id']
+
+            # [추가] 2. 샘플 아이템 및 '당첨된 조던' 아이템 삽입
+            cursor.execute("SELECT COUNT(*) as cnt FROM raffle_items")
+            if cursor.fetchone()['cnt'] == 0:
+                # 일반 아이템 2개
+                cursor.execute("""
+                    INSERT INTO raffle_items (title, description, end_time, image_url) VALUES 
+                    ('나이키 덩크 로우 범고래', '국민 신발, 마지막 기회!', '2026-04-30 18:00:00', 'https://images.unsplash.com/photo-1595950653106-6c9ebd614d3a?w=500&q=80'),
+                    ('애플 에어팟 맥스 실버', '노이즈 캔슬링 끝판왕', '2026-05-05 12:00:00', 'https://images.unsplash.com/photo-1613040809024-b4ef7ba99bc3?w=500&q=80')
+                """)
+                
+                # 당첨 확정 아이템 (시간은 미래로 설정해야 메인에 잘 보임)
+                cursor.execute("""
+                    INSERT INTO raffle_items (title, description, end_time, image_url, is_drawn, winner_id) VALUES 
+                    ('나이키 x 트래비스 스캇 조던 1', '최고의 신발.', '2026-04-07 15:10:00', 
+                    'https://images.unsplash.com/photo-1542291026-7eec264c27ff?w=500&q=80', TRUE, %s)
+                """, (user_id,))
+                jordan_id = conn.insert_id()
+
+                # [추가] 3. test1 유저를 조던에 응모시키기 (기록 생성)
+                cursor.execute("INSERT INTO raffle_entries (user_id, item_id) VALUES (%s, %s)", (user_id, jordan_id))
+
+        conn.commit()
+        return "✅ DB 초기화 완료! 'test1' 계정 생성 및 조던 당첨 데이터 셋업 성공."
+    except Exception as e:
+        conn.rollback()
+        return f"❌ 초기화 실패: {str(e)}"
+    finally:
+        conn.close()
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=8080, debug=True)

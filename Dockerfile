@@ -12,6 +12,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 # 4. 내 소스 코드와 템플릿 폴더 복사
 # k8s 폴더는 복사하지 않도록 명시적으로 필요한 것만 골라 담자.
 COPY app.py .
+#COPY draw_winner.py .
 COPY templates/ ./templates/
 
 # 5. Flask 서버 실행 (8080 포트 사용 가정)
