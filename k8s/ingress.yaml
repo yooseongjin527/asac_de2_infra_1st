@@ -30,13 +30,9 @@ metadata:
     kubernetes.io/ingress.class: alb
     alb.ingress.kubernetes.io/scheme: internet-facing
     alb.ingress.kubernetes.io/target-type: ip
-    # v1: 90%, v2(카나리): 10%
-    # 검증 후 100/0 또는 0/100으로 조정
+    # 카나리아 가중치 설정 (현재 v1: 100%, v2: 0%)
     alb.ingress.kubernetes.io/actions.canary-routing: >
-      {"type":"forward","forwardConfig":{"targetGroups":[
-        {"serviceName":"raffle-service-v1","servicePort":"80","weight":90},
-        {"serviceName":"raffle-service-v2","servicePort":"80","weight":10}
-      ]}}
+      {"type":"forward","forwardConfig":{"targetGroups":[{"serviceName":"raffle-service-v1","servicePort":"80","weight":50},{"serviceName":"raffle-service-v2","servicePort":"80","weight":50}]}}
 spec:
   ingressClassName: alb
   rules:
@@ -47,5 +43,5 @@ spec:
             backend:
               service:
                 name: canary-routing
-                port:
+                port: 
                   name: use-annotation
