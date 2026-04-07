@@ -1,18 +1,17 @@
 from flask import Flask, render_template, request, jsonify, session, redirect, url_for
 import pymysql
 from datetime import datetime
+import os 
 
 app = Flask(__name__)
 app.secret_key = 'dev-secret-key'
 
-# ==========================================
-# 1. AWS RDS 엔드포인트 설정 (A가 주거나, 네가 만든 주소 입력)
-# ==========================================
-DB_WRITER_HOST = "raffle-master-temp.cr0i2486ezf2.eu-west-1.rds.amazonaws.com" # 마스터 주소
-DB_READER_HOST = "raffle-replica-temp.cr0i2486ezf2.eu-west-1.rds.amazonaws.com" # 리플리카 주소
-DB_USER = "admin"
-DB_PASSWORD = "test1234"
-DB_NAME = "raffle_db"
+# 1. ConfigMap에서 가져오기
+DB_WRITER_HOST = os.environ.get('DB_WRITER_HOST')
+DB_READER_HOST = os.environ.get('DB_READER_HOST')
+DB_NAME = os.environ.get('DB_NAME', 'raffle_db')
+DB_USER = os.environ.get('DB_USER', 'admin')
+DB_PASSWORD = os.environ.get('DB_PASSWORD')
 
 def get_db_connection(is_write=False):
     """트래픽 분산의 핵심: 쓰기 요청은 Master로, 읽기 요청은 Replica로 연결"""
@@ -61,27 +60,31 @@ def mypage():
     if 'user_id' not in session: return redirect(url_for('login_page'))
     
     current_username = session['user_id']
-    
-    # [리플리카 DB]에서 내 응모 내역 JOIN 해서 가져오기
     conn = get_db_connection(is_write=False)
     with conn.cursor() as cursor:
         sql = """
-            SELECT r.title, r.end_time, e.entry_time
+            SELECT r.title, r.end_time, e.entry_time, r.winner_id, u_winner.username as winner_name, u_me.id as my_id
             FROM raffle_entries e
-            JOIN users u ON e.user_id = u.id
+            JOIN users u_me ON e.user_id = u_me.id
             JOIN raffle_items r ON e.item_id = r.id
-            WHERE u.username = %s
+            LEFT JOIN users u_winner ON r.winner_id = u_winner.id
+            WHERE u_me.username = %s
             ORDER BY e.entry_time DESC
         """
         cursor.execute(sql, (current_username,))
         history_data = cursor.fetchall()
     conn.close()
 
-    # 추첨 상태 로직 처리
     my_history = []
     now = datetime.now()
     for row in history_data:
-        status = "당첨 대기중 ⏳" if now < row['end_time'] else "아쉽게도 낙첨되었습니다 😥"
+        if row['winner_id'] is None:
+            status = "당첨 대기중 ⏳" if now < row['end_time'] else "추첨 진행 중... ⚙️"
+        elif row['winner_id'] == row['my_id']:
+            status = "축하합니다! 당첨되었습니다! 🎉"
+        else:
+            status = "다음 기회에..."
+            
         my_history.append({
             "title": row['title'],
             "apply_date": row['entry_time'].strftime("%Y-%m-%d %H:%M"),
@@ -89,7 +92,6 @@ def mypage():
         })
 
     return render_template('mypage.html', user_id=current_username, history=my_history)
-
 
 # ==========================================
 # 3. API 라우팅 (INSERT ➡️ 마스터 사용)
@@ -188,7 +190,10 @@ def initialize_database():
                 title VARCHAR(100) NOT NULL,
                 description TEXT,
                 end_time DATETIME NOT NULL,
-                image_url VARCHAR(255)
+                image_url VARCHAR(255),
+                winner_id INT DEFAULT NULL,
+                is_drawn BOOLEAN DEFAULT FALSE,
+                FOREIGN KEY (winner_id) REFERENCES users(id)
             )
         """)
         cursor.execute("""

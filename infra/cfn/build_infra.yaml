@@ -9,11 +9,11 @@ Parameters:
     Type: String
     Default: 10.0.0.0/16
     Description: 'VPC CIDR Block (Default: 10.0.0.0/16)'
+# [추가] 배포 시 접근 허용할 IP를 입력받도록 파라미터 추가
   AllowedSSHLocation:
     Type: String
     Default: 0.0.0.0/0
     Description: 'The IP address range that can be used to SSH to the Bastion host (e.g., your home IP x.x.x.x/32)'
-
 
 Resources:
   # 1. VPC 생성
