@@ -8,7 +8,7 @@ metadata:
     alb.ingress.kubernetes.io/target-type: ip
     # 카나리아 가중치 설정 (현재 v1: 100%, v2: 0%)
     alb.ingress.kubernetes.io/actions.canary-routing: >
-      {"type":"forward","forwardConfig":{"targetGroups":[{"serviceName":"raffle-service-v1","servicePort":"80","weight":0},{"serviceName":"raffle-service-v2","servicePort":"80","weight":100}]}}
+      {"type":"forward","forwardConfig":{"targetGroups":[{"serviceName":"raffle-service-v1","servicePort":"80","weight":100},{"serviceName":"raffle-service-v2","servicePort":"80","weight":0}]}}
 spec:
   ingressClassName: alb
   rules:
